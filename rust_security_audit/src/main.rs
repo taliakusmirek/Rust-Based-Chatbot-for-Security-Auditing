@@ -9,6 +9,9 @@ use std::{
     io::{prelude::*, BufReader},
     net::{TcpListener, TcpStream},
 };
+use dotenv::dotenv;
+use std::env;
+use std::io::{ErrorKind, Write};
 
 fn call_gpt_api(api_key: &str, user_input: &str) -> Result<String, Box<dyn Error>> {
     let client = Client::new();
@@ -31,50 +34,73 @@ fn call_gpt_api(api_key: &str, user_input: &str) -> Result<String, Box<dyn Error
     Ok(answer)
 }
 
-fn handle_connection(mut stream: TcpStream, api_key: &String) -> Result<(), Box<dyn Error>> {
-    let mut reader = BufReader::new(&mut stream); // Keep the stream as mutable
-
-    // Removed http_request variable
-
-    // Check if index.html exists and return the contents, else return 404
+fn handle_connection(mut stream: TcpStream, api_key: &str) -> Result<(), Box<dyn Error>> {
     let (status_line, contents) = if let Ok(html_content) = fs::read_to_string("index.html") {
         ("HTTP/1.1 200 OK", html_content)
     } else {
         ("HTTP/1.1 404 NOT FOUND", "404: File Not Found".to_string())
     };
 
-    let length = contents.len();
-    let response = format!("{status_line}\r\nContent-Length: {length}\r\n\r\n{contents}");
-    stream.write_all(response.as_bytes()).unwrap();
-
-    // Loop for GPT
-    loop {
-        let mut user_input = String::new();
-
-        // Read user input directly from the stream
-        if reader.read_line(&mut user_input).is_err() {
-            break; // Exit loop on error (e.g., client disconnected)
+    let response = format!("{status_line}\r\nContent-Length: {}\r\n\r\n{}", contents.len(), contents);
+    
+    // Write the HTTP response 
+    if let Err(e) = stream.write_all(response.as_bytes()) {
+        if e.kind() == ErrorKind::BrokenPipe {
+            return Ok(());
+        } else {
+            return Err(Box::new(e));
         }
-
-        user_input = user_input.trim().to_string();
-
-        if user_input.eq_ignore_ascii_case("quit") {
-            break;
-        }
-
-        // Call GPT API
-        let gpt_response = call_gpt_api(api_key, &user_input)
-            .unwrap_or_else(|_| "Sorry, I couldn't quite understand that.".to_string());
-
-        // Send GPT response to client
-        stream.write_all(format!("Agent: {}\n", gpt_response).as_bytes())?;
-
     }
+    stream.flush()?;  // Ensure the response is sent
+
+    // Now create a BufReader for reading the user's input
+    {
+        let mut reader = BufReader::new(&mut stream);
+        loop {
+            let mut user_input = String::new();
+
+            // Read the user's input
+            if reader.read_line(&mut user_input).is_err() {
+                break;
+            }
+
+            user_input = user_input.trim().to_string();
+
+            if user_input.eq_ignore_ascii_case("quit") {
+                break;
+            }
+
+            // Process user input (e.g., call GPT API)
+            let gpt_response = call_gpt_api(api_key, &user_input)
+                .unwrap_or_else(|_| "Sorry, I couldn't quite understand that.".to_string());
+
+            // Drop the reader to release the mutable borrow on `stream`
+            drop(reader);
+
+            // Write the GPT response back to the client
+            if let Err(e) = stream.write_all(format!("Agent: {}\n", gpt_response).as_bytes()) {
+                if e.kind() == ErrorKind::BrokenPipe {
+                    break;
+                } else {
+                    return Err(Box::new(e));
+                }
+            }
+            stream.flush()?;  // Ensure the response is sent
+
+            // Recreate the BufReader after writing
+            reader = BufReader::new(&mut stream);
+        }
+    }
+
     Ok(())
 }
 
+
+
 fn main() {
-    let api_key = std::env::var("OPENAI_API_KEY").expect("OPENAI_API_KEY not set");
+    dotenv().ok();
+
+    let api_key = env::var("OPENAI_API_KEY").expect("OPENAI_API_KEY not set");
     let listener = TcpListener::bind("127.0.0.1:7878").unwrap();
     let pool = ThreadPool::new(4);
 
@@ -83,7 +109,9 @@ fn main() {
         let api_key_clone = api_key.clone();
         
         pool.execute(move || {
-            handle_connection(stream, &api_key_clone).unwrap();
+            if let Err(e) = handle_connection(stream, &api_key_clone) {
+                eprintln!("Error handling connection: {}", e);
+            }
         });
     }
 }

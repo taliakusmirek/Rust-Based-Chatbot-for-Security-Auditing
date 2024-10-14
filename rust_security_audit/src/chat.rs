@@ -2,8 +2,8 @@ use serde::{Deserialize, Serialize};
 
 #[derive(Serialize)]
 pub struct OpenAIRequest {
-    model: String,
-    messages: Vec<Message>,
+    pub model: String,
+    pub messages: Vec<Message>,
 }
 
 #[derive(Serialize)]
