@@ -1,20 +1,19 @@
 mod lib;
 use lib::ThreadPool;
 mod chat;
-use reqwest::blocking::Client;
 use chat::{OpenAIRequest, Message, OpenAIResponse};
 use std::{
     error::Error,
     fs,
-    io::{prelude::*, BufReader},
-    net::{TcpListener, TcpStream},
 };
 use dotenv::dotenv;
 use std::env;
-use std::io::{ErrorKind, Write};
+use tiny_http::{Server, Response, Header};
+use serde_json::json;
+
 
 fn call_gpt_api(api_key: &str, user_input: &str) -> Result<String, Box<dyn Error>> {
-    let client = Client::new();
+    let client = reqwest::blocking::Client::new();
     let request_body = OpenAIRequest {
         model: "gpt-4".to_string(),
         messages: vec![Message {
@@ -34,84 +33,60 @@ fn call_gpt_api(api_key: &str, user_input: &str) -> Result<String, Box<dyn Error
     Ok(answer)
 }
 
-fn handle_connection(mut stream: TcpStream, api_key: &str) -> Result<(), Box<dyn Error>> {
-    let (status_line, contents) = if let Ok(html_content) = fs::read_to_string("index.html") {
-        ("HTTP/1.1 200 OK", html_content)
-    } else {
-        ("HTTP/1.1 404 NOT FOUND", "404: File Not Found".to_string())
-    };
+fn handle_request(mut request: tiny_http::Request, api_key: &str) -> Result<(), Box<dyn Error>> {
+    match request.url() {
+        "/" => {
+            let content = fs::read_to_string("index.html")?;
+            let response = Response::from_string(content)
+                .with_header(Header::from_bytes(&b"Content-Type"[..], &b"text/html"[..]).unwrap());
+            request.respond(response)?;
+        },
+        "/chat" => {
+            if request.method() == &tiny_http::Method::Post {
+                let mut content = String::new();
+                request.as_reader().read_to_string(&mut content)?;
+                let json: serde_json::Value = serde_json::from_str(&content)?;
+                let user_message = json["message"].as_str().unwrap_or_default();
 
-    let response = format!("{status_line}\r\nContent-Length: {}\r\n\r\n{}", contents.len(), contents);
-    
-    // Write the HTTP response 
-    if let Err(e) = stream.write_all(response.as_bytes()) {
-        if e.kind() == ErrorKind::BrokenPipe {
-            return Ok(());
-        } else {
-            return Err(Box::new(e));
+                let gpt_response = call_gpt_api(api_key, user_message)?;
+                let response_json = json!({
+                    "response": gpt_response
+                });
+
+                let response = Response::from_string(response_json.to_string())
+                    .with_header(Header::from_bytes(&b"Content-Type"[..], &b"application/json"[..]).unwrap());
+                request.respond(response)?;
+            } else {
+                let response = Response::from_string("Method Not Allowed")
+                    .with_status_code(405);
+                request.respond(response)?;
+            }
+        },
+        _ => {
+            let response = Response::from_string("Not Found")
+                .with_status_code(404);
+            request.respond(response)?;
         }
     }
-    stream.flush()?;  // Ensure the response is sent
-
-    // Now create a BufReader for reading the user's input
-    {
-        let mut reader = BufReader::new(&mut stream);
-        loop {
-            let mut user_input = String::new();
-
-            // Read the user's input
-            if reader.read_line(&mut user_input).is_err() {
-                break;
-            }
-
-            user_input = user_input.trim().to_string();
-
-            if user_input.eq_ignore_ascii_case("quit") {
-                break;
-            }
-
-            // Process user input (e.g., call GPT API)
-            let gpt_response = call_gpt_api(api_key, &user_input)
-                .unwrap_or_else(|_| "Sorry, I couldn't quite understand that.".to_string());
-
-            // Drop the reader to release the mutable borrow on `stream`
-            drop(reader);
-
-            // Write the GPT response back to the client
-            if let Err(e) = stream.write_all(format!("Agent: {}\n", gpt_response).as_bytes()) {
-                if e.kind() == ErrorKind::BrokenPipe {
-                    break;
-                } else {
-                    return Err(Box::new(e));
-                }
-            }
-            stream.flush()?;  // Ensure the response is sent
-
-            // Recreate the BufReader after writing
-            reader = BufReader::new(&mut stream);
-        }
-    }
-
     Ok(())
 }
 
-
-
-fn main() {
+fn main() -> Result<(), Box<dyn Error>> {
     dotenv().ok();
 
     let api_key = env::var("OPENAI_API_KEY").expect("OPENAI_API_KEY not set");
-    let listener = TcpListener::bind("127.0.0.1:7878").unwrap();
+    let server = Server::http("127.0.0.1:7878").unwrap();
     let pool = ThreadPool::new(4);
 
-    for stream in listener.incoming().take(2) {
-        let stream = stream.unwrap();
+    for request in server.incoming_requests() {
         let api_key_clone = api_key.clone();
         
         pool.execute(move || {
-            if let Err(e) = handle_connection(stream, &api_key_clone) {
-                eprintln!("Error handling connection: {}", e);
+            if let Err(e) = handle_request(request, &api_key_clone) {
+                eprintln!("Error handling request: {}", e);
             }
         });
     }
+
+    Ok(())
 }

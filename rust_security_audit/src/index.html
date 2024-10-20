@@ -2,10 +2,60 @@
 <html lang="en">
   <head>
     <meta charset="utf-8">
-    <title>Hello!</title>
+    <title>Security Audit Chatbot</title>
   </head>
   <body>
-    <h1>Hello!</h1>
-    <p>Hi from Rust</p>
+    <h1>Security Audit Chatbot</h1>
+    <h5>Built with Rust, using GPT4</h5>
+    <div id="chat_box"></div>
+      <input type="text" id="user_input" placeholder="Check your code here...">
+      <button id="send">Send</button>
+
+      <script>
+        const chatBox = document.getElementById('chat_box');
+        const userInput = document.getElementById('user_input');
+        const sendButton = document.getElementById('send');
+
+        function addMessage(sender, message) {
+          const messageElement = document.createElement('div');
+          messageElement.classList.add('message');
+          messageElement.classList.add(sender == 'You' ? 'user' : 'bot');
+          messageElement.textContent = message;
+          chatBox.appendChild(messageElement);
+          chatBox.scrollTop = chatBox.scrollHeight;
+        }
+
+        async function sendMessage() {
+          const message = userInput.value.trim();
+          if (message) {
+            addMessage('You', message);
+            userInput.value = '';
+
+            try {
+              const response = await fetch('/chat', {
+                method: 'POST',
+                headers: {
+                  'Content-Type': 'application/json',
+                },
+                body: JSON.stringify({ message: message }),
+              });
+
+              if (response.ok) {
+                const data = await response.json();
+                addMessage('Bot', data.message);
+              } else {
+                addMessage('Bot', 'Sorry, something went wrong.');
+              }
+            } catch (error) {
+              addMessage('Bot', 'Sorry, something went wrong.');
+            }
+          }
+        }
+
+        sendButton.addEventListener('click', sendMessage);
+
+        // Default chatbot message
+        addMessage('Bot', "Hello! Let's see how we can improve the security of your Rust code.");
+      </script>
   </body>
 </html>
