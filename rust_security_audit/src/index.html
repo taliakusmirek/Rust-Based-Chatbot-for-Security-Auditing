@@ -1,61 +1,142 @@
 <!DOCTYPE html>
 <html lang="en">
-  <head>
-    <meta charset="utf-8">
-    <title>Security Audit Chatbot</title>
-  </head>
-  <body>
-    <h1>Security Audit Chatbot</h1>
-    <h5>Built with Rust, using GPT4</h5>
-    <div id="chat_box"></div>
-      <input type="text" id="user_input" placeholder="Check your code here...">
-      <button id="send">Send</button>
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Security Audit Chatbot</title>
+  <style>
+    body {
+      background-color: #F04747;
+      font-family:Cambria, Cochin, Georgia, Times, 'Times New Roman', serif;
+      margin: 0;
+      padding: 0;
+    }
 
-      <script>
-        const chatBox = document.getElementById('chat_box');
-        const userInput = document.getElementById('user_input');
-        const sendButton = document.getElementById('send');
+    #chat_box {
+      height: 400px;
+      overflow-y: scroll;
+      padding: 20px;
+      background-color: #fff;
+      border-radius: 10px;
+      margin: 20px;
+    }
 
-        function addMessage(sender, message) {
-          const messageElement = document.createElement('div');
-          messageElement.classList.add('message');
-          messageElement.classList.add(sender == 'You' ? 'user' : 'bot');
-          messageElement.textContent = message;
-          chatBox.appendChild(messageElement);
-          chatBox.scrollTop = chatBox.scrollHeight;
-        }
+    .message {
+      border-radius: 10px;
+      padding: 10px;
+      margin-bottom: 10px;
+    }
 
-        async function sendMessage() {
-          const message = userInput.value.trim();
-          if (message) {
-            addMessage('You', message);
-            userInput.value = '';
+    .message.user {
+      background-color: #fff;
+      text-align: right;
+    }
 
-            try {
-              const response = await fetch('/chat', {
-                method: 'POST',
-                headers: {
-                  'Content-Type': 'application/json',
-                },
-                body: JSON.stringify({ message: message }),
-              });
+    .message.bot {
+      background-color: #fff;
+      text-align: left;
+    }
 
-              if (response.ok) {
-                const data = await response.json();
-                addMessage('Bot', data.message);
-              } else {
-                addMessage('Bot', 'Sorry, something went wrong.');
-              }
-            } catch (error) {
-              addMessage('Bot', 'Sorry, something went wrong.');
-            }
+    .message img {
+      width: 30px;
+      height: 30px;
+      border-radius: 50%;
+      margin-right: 10px;
+    }
+
+    #user_input {
+      font-family:Cambria, Cochin, Georgia, Times, 'Times New Roman', serif;
+      width: 80%;
+      padding: 10px;
+      margin: 20px;
+      border: none;
+      border-radius: 5px;
+    }
+
+    #send {
+      background-color: #fff;
+      font-family:Cambria, Cochin, Georgia, Times, 'Times New Roman', serif;
+      border: none;
+      align-items: center;
+      padding: 10px 20px;
+      margin: 30px;
+      border-radius: 5px;
+      cursor: pointer;
+    }
+
+    #send:hover {
+      background-color: #f2f2f2;
+    }
+
+    .continue-button {
+      background-color: #fff;
+      font-family:Cambria, Cochin, Georgia, Times, 'Times New Roman', serif;
+      border: none;
+      padding: 10px 20px;
+      border-radius: 5px;
+      cursor: pointer;
+    }
+
+    .continue-button:hover {
+      background-color: #f2f2f2;
+    }
+
+  </style>
+</head>
+<body>
+  <div id="chat_box">
+    <div class="message bot">
+      <div class="message-content">Hello! Let's see how we can improve the security of your Rust code.</div>
+    </div>
+  </div>
+  <div>
+    <input type="text" id="user_input" placeholder="Check your code here...">
+    <button id="send">Send</button>
+    <button class="continue-button">Continue</button>
+  </div>
+
+  <script>
+    const chatBox = document.getElementById('chat_box');
+    const userInput = document.getElementById('user_input');
+    const sendButton = document.getElementById('send');
+
+    function addMessage(sender, message) {
+      const messageElement = document.createElement('div');
+      messageElement.classList.add('message');
+      messageElement.classList.add(sender == 'You' ? 'user' : 'bot');
+      messageElement.innerHTML = `<div class="message-content">${message}</div>`;
+      chatBox.appendChild(messageElement);
+      chatBox.scrollTop = chatBox.scrollHeight;
+    }
+
+    async function sendMessage() {
+      const message = userInput.value.trim();
+      if (message) {
+        addMessage('You', message);
+        userInput.value = '';
+
+        try {
+          const response = await fetch('/chat', {
+            method: 'POST',
+            headers: {
+              'Content-Type': 'application/json',
+            },
+            body: JSON.stringify({ message: message }),
+          });
+
+          if (response.ok) {
+            const data = await response.json();
+            addMessage('Bot', data.message);
+          } else {
+            addMessage('Bot', 'Sorry, something went wrong.');
           }
+        } catch (error) {
+          addMessage('Bot', 'Sorry, something went wrong.');
         }
+      }
+    }
 
-        sendButton.addEventListener('click', sendMessage);
-
-        // Default chatbot message
-        addMessage('Bot', "Hello! Let's see how we can improve the security of your Rust code.");
-      </script>
-  </body>
+    sendButton.addEventListener('click', sendMessage);
+  </script>
+</body>
 </html>

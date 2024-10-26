@@ -12,13 +12,18 @@ use tiny_http::{Server, Response, Header};
 use serde_json::json;
 
 
-fn call_gpt_api(api_key: &str, user_input: &str) -> Result<String, Box<dyn Error>> {
+fn call_gpt_api(api_key: &str, user_input: &str) -> Result<String, Box<dyn Error + Send + Sync>> {
     let client = reqwest::blocking::Client::new();
+    let prompt = format!(
+        "Please review the following Rust code for potential security vulnerabilities and suggest improvements:\n\n{}",
+        user_input
+    );
+
     let request_body = OpenAIRequest {
         model: "gpt-4".to_string(),
         messages: vec![Message {
             role: "user".to_string(),
-            content: user_input.to_string(),
+            content: prompt,
         }],
     };
 
@@ -27,13 +32,31 @@ fn call_gpt_api(api_key: &str, user_input: &str) -> Result<String, Box<dyn Error
         .header("Authorization", format!("Bearer {}", api_key))
         .json(&request_body)
         .send()?;
-        
-    let gpt_response: OpenAIResponse = res.json()?;
-    let answer = gpt_response.choices[0].message.content.clone(); // Clone here to return a String
+
+    // Store the status code before calling `res.text()`
+    let status = res.status();
+
+    if !status.is_success() {
+        // Consume `res` to get the error text
+        let error_text = res.text()?;
+        eprintln!("Error from API: {}", error_text);
+        return Err(format!("API request failed with status: {}", status).into());
+    }
+
+    // Directly attempt to deserialize the response
+    let gpt_response: OpenAIResponse = res.json()?; // Use `?` to handle any error
+
+    // Retrieve the content from the response
+    let answer = gpt_response.choices[0].message.content.clone();
     Ok(answer)
 }
 
-fn handle_request(mut request: tiny_http::Request, api_key: &str) -> Result<(), Box<dyn Error>> {
+
+
+
+
+
+fn handle_request(mut request: tiny_http::Request, api_key: &str) -> Result<(), Box<dyn Error + Send + Sync>> {
     match request.url() {
         "/" => {
             let content = fs::read_to_string("index.html")?;
@@ -70,6 +93,7 @@ fn handle_request(mut request: tiny_http::Request, api_key: &str) -> Result<(), 
     }
     Ok(())
 }
+
 
 fn main() -> Result<(), Box<dyn Error>> {
     dotenv().ok();
